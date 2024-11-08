@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Bird</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 flex flex-col items-center justify-center min-h-screen select-none">
+    <div class="mb-4">
+        <h1 class="text-2xl font-bold text-white">Flappy Bird</h1>
+        <p class="text-gray-400 text-center">Click or press Space to start</p>
+    </div>
+    <div class="relative">
+        <!-- Score display -->
+        <div class="absolute top-4 left-4 z-10 text-white font-bold text-xl">
+            Score: <span id="currentScore">0</span>
+        </div>
+        <div class="absolute top-4 right-4 z-10 text-white font-bold text-xl">
+            Best: <span id="bestScore">0</span>
+        </div>
+        
+        <canvas 
+            id="gameCanvas" 
+            width="400" 
+            height="600" 
+            class="bg-sky-400 rounded-lg shadow-lg cursor-pointer"
+        ></canvas>
+        <div id="gameOver" class="hidden absolute inset-0 bg-black/50 rounded-lg flex flex-col items-center justify-center">
+            <div class="bg-white p-6 rounded-lg shadow-lg text-center">
+                <h2 class="text-2xl font-bold text-red-600 mb-2">Game Over!</h2>
+                <p class="text-lg mb-4">Score: <span id="finalScore">0</span></p>
+                <button 
+                    id="restartButton"
+                    class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors"
+                >
+                    Play Again
+                </button>
+            </div>
+        </div>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const canvas = document.getElementById('gameCanvas');
+            const ctx = canvas.getContext('2d');
+            const gameOverScreen = document.getElementById('gameOver');
+            const restartButton = document.getElementById('restartButton');
+            const currentScoreElement = document.getElementById('currentScore');
+            const bestScoreElement = document.getElementById('bestScore');
+            const finalScoreElement = document.getElementById('finalScore');
+            
+            let gameStarted = false;
+            let gameOver = false;
+            let score = 0;
+            let bestScore = parseInt(localStorage.getItem('flappyBestScore')) || 0;
+            
+            // Update best score display
+            bestScoreElement.textContent = bestScore;
+
+            // Game constants
+            const PIPE_SPEED = 2;
+            const PIPE_GAP = 150;
+            const MIN_PIPE_HEIGHT = 50;
+            const CLOUD_SPEED = 0.5;
+            const INITIAL_PIPE_SPACING = 300;
+            const MIN_PIPE_SPACING = 200; // Maximum difficulty (minimum space between pipes)
+            const DIFFICULTY_INCREASE_INTERVAL = 1000; // Frames between difficulty increases
+            const PIPE_SPACING_DECREASE = 10; // How much to decrease spacing each time
+
+            // Bird properties
+            const initialBirdState = {
+                x: 50,
+                y: canvas.height / 2,
+                radius: 20,
+                velocity: 0,
+                gravity: 0.3,
+                jumpForce: -7
+            };
+
+            // Cloud properties
+            let clouds = [];
+            const CLOUD_SPACING = 400;
+            const MIN_CLOUD_HEIGHT = 50;
+            const MAX_CLOUD_HEIGHT = 250;
+
+            // Create initial clouds
+            function createCloud() {
+                return {
+                    x: canvas.width,
+                    y: Math.random() * (canvas.height - MAX_CLOUD_HEIGHT),
+                    width: 80 + Math.random() * 40, // Random width between 80-120
+                    height: 40 + Math.random() * 30, // Random height between 40-70
+                };
+            }
+
+            function drawClouds() {
+                clouds.forEach(cloud => {
+                    const centerX = cloud.x + cloud.width / 2;
+                    const centerY = cloud.y + cloud.height / 2;
+                    
+                    // Main cloud body with lower opacity
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+                    ctx.beginPath();
+                    ctx.arc(centerX, centerY, cloud.height / 2, 0, Math.PI * 2);
+                    ctx.arc(centerX - cloud.width / 4, centerY, cloud.height / 2.5, 0, Math.PI * 2);
+                    ctx.arc(centerX + cloud.width / 4, centerY, cloud.height / 2.5, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Add some darker details for depth
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                    ctx.beginPath();
+                    ctx.arc(centerX - cloud.width / 3, centerY + cloud.height / 4, cloud.height / 3, 0, Math.PI * 2);
+                    ctx.arc(centerX + cloud.width / 3, centerY + cloud.height / 4, cloud.height / 3, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+            }
+
+            function updateClouds() {
+                // Move clouds
+                clouds.forEach(cloud => {
+                    cloud.x -= CLOUD_SPEED;
+                });
+
+                // Remove clouds that are off screen
+                clouds = clouds.filter(cloud => cloud.x > -cloud.width);
+
+                // Add new cloud when needed
+                if (frameCount % CLOUD_SPACING === 0) {
+                    clouds.push(createCloud());
+                }
+            }
+
+            // Pipes array with scoring property
+            let pipes = [];
+            let frameCount = 0;
+
+            let bird = { ...initialBirdState };
+
+            function createPipe() {
+                const gapStart = Math.random() * (canvas.height - PIPE_GAP - MIN_PIPE_HEIGHT * 2) + MIN_PIPE_HEIGHT;
+                return {
+                    x: canvas.width,
+                    gapStart: gapStart,
+                    gapEnd: gapStart + PIPE_GAP,
+                    scored: false // Track if player has scored from this pipe
+                };
+            }
+
+            function updateScore() {
+                pipes.forEach(pipe => {
+                    // If bird has passed the pipe and hasn't been scored yet
+                    if (!pipe.scored && pipe.x + 50 < bird.x) {
+                        score++;
+                        pipe.scored = true;
+                        currentScoreElement.textContent = score;
+                        
+                        // Update best score if needed
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestScoreElement.textContent = bestScore;
+                            localStorage.setItem('flappyBestScore', bestScore);
+                        }
+                    }
+                });
+            }
+
+            function drawPipes() {
+                // Brighter, more saturated green for better visibility
+                ctx.fillStyle = '#00e676'; // Changed from #2ecc71 to a more vibrant green
+                pipes.forEach(pipe => {
+                    // Draw top pipe
+                    ctx.fillRect(pipe.x, 0, 50, pipe.gapStart);
+                    // Draw bottom pipe
+                    ctx.fillRect(pipe.x, pipe.gapEnd, 50, canvas.height - pipe.gapEnd);
+                });
+            }
+
+            let currentPipeSpacing = INITIAL_PIPE_SPACING;
+
+            function updatePipes() {
+                // Move pipes
+                pipes.forEach(pipe => {
+                    pipe.x -= PIPE_SPEED;
+                });
+
+                // Remove pipes that are off screen
+                pipes = pipes.filter(pipe => pipe.x > -50);
+
+                // Increase difficulty over time
+                if (frameCount % DIFFICULTY_INCREASE_INTERVAL === 0 && currentPipeSpacing > MIN_PIPE_SPACING) {
+                    currentPipeSpacing = Math.max(MIN_PIPE_SPACING, currentPipeSpacing - PIPE_SPACING_DECREASE);
+                }
+
+                // Add new pipe when needed (using currentPipeSpacing instead of PIPE_SPACING)
+                if (frameCount % currentPipeSpacing === 0) {
+                    pipes.push(createPipe());
+                }
+            }
+
+            function checkPipeCollision() {
+                return pipes.some(pipe => {
+                    // Check if bird is at pipe's x position
+                    if (bird.x + bird.radius > pipe.x && bird.x - bird.radius < pipe.x + 50) {
+                        // Check if bird hits top or bottom pipe
+                        return bird.y - bird.radius < pipe.gapStart || 
+                               bird.y + bird.radius > pipe.gapEnd;
+                    }
+                    return false;
+                });
+            }
+
+            function resetGame() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                bird = { ...initialBirdState };
+                pipes = [];
+                clouds = []; // Reset clouds
+                frameCount = 0;
+                score = 0;
+                currentScoreElement.textContent = '0';
+                gameStarted = false;
+                gameOver = false;
+                gameOverScreen.classList.add('hidden');
+                drawBird();
+                currentPipeSpacing = INITIAL_PIPE_SPACING; // Reset difficulty
+            }
+
+            function drawBird() {
+                ctx.beginPath();
+                ctx.arc(bird.x, bird.y, bird.radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#FFD700';
+                ctx.fill();
+                ctx.closePath();
+            }
+
+            function checkCollision() {
+                // Check ceiling and floor collision
+                if (bird.y - bird.radius <= 0 || bird.y + bird.radius >= canvas.height) {
+                    return true;
+                }
+                // Check pipe collision
+                return checkPipeCollision();
+            }
+
+            function endGame() {
+                gameOver = true;
+                finalScoreElement.textContent = score;
+                gameOverScreen.classList.remove('hidden');
+            }
+
+            function gameLoop() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Always update and draw clouds, even if game hasn't started
+                updateClouds();
+                drawClouds();
+
+                if (gameStarted && !gameOver) {
+                    frameCount++;
+                    
+                    bird.velocity += bird.gravity;
+                    bird.y += bird.velocity;
+
+                    if (checkCollision()) {
+                        endGame();
+                        drawPipes();
+                        drawBird();
+                        return;
+                    }
+
+                    updatePipes();
+                    drawPipes();
+                    updateScore();
+                }
+
+                drawBird();
+
+                if (gameStarted && !gameOver) {
+                    requestAnimationFrame(gameLoop);
+                }
+            }
+
+            function jump(e) {
+                if (e.code === 'Space') {
+                    e.preventDefault();
+                }
+
+                // If game is over, treat space/click as restart
+                if (gameOver) {
+                    resetGame();
+                    return;
+                }
+
+                if (!gameStarted) {
+                    gameStarted = true;
+                    gameLoop();
+                }
+                bird.velocity = bird.jumpForce;
+            }
+
+            canvas.addEventListener('click', jump);
+            document.addEventListener('keydown', jump);
+            restartButton.addEventListener('click', resetGame);
+
+            // Add initial clouds
+            for (let i = 0; i < 3; i++) {
+                const cloud = createCloud();
+                cloud.x = Math.random() * canvas.width; // Distribute across screen
+                clouds.push(cloud);
+            }
+
+            // Start the initial animation loop for clouds even before game starts
+            function initialAnimation() {
+                if (!gameStarted) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    updateClouds();
+                    drawClouds();
+                    drawBird();
+                    requestAnimationFrame(initialAnimation);
+                }
+            }
+
+            initialAnimation();
+
+            drawBird();
+        });
+    </script>
+</body>
+</html>
