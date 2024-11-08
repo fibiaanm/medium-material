@@ -62,8 +62,8 @@
             const PIPE_GAP = 150;
             const MIN_PIPE_HEIGHT = 50;
             const CLOUD_SPEED = 0.5;
-            const INITIAL_PIPE_SPACING = 300;
-            const MIN_PIPE_SPACING = 200; // Maximum difficulty (minimum space between pipes)
+            const INITIAL_PIPE_SPACING = 250;
+            const MIN_PIPE_SPACING = 150; // Maximum difficulty (minimum space between pipes)
             const DIFFICULTY_INCREASE_INTERVAL = 1000; // Frames between difficulty increases
             const PIPE_SPACING_DECREASE = 10; // How much to decrease spacing each time
 
@@ -73,8 +73,8 @@
                 y: canvas.height / 2,
                 radius: 20,
                 velocity: 0,
-                gravity: 0.3,
-                jumpForce: -7
+                gravity: 0.6 ,
+                jumpForce: -10 
             };
 
             // Cloud properties
@@ -222,6 +222,8 @@
                 gameOverScreen.classList.add('hidden');
                 drawBird();
                 currentPipeSpacing = INITIAL_PIPE_SPACING; // Reset difficulty
+                lastTime = null;
+                accumulator = 0;
             }
 
             function drawBird() {
@@ -247,31 +249,65 @@
                 gameOverScreen.classList.remove('hidden');
             }
 
+            // Add these constants near the other game constants
+            const FPS = 60;
+            const TIME_STEP = 1000 / FPS; // Time step in milliseconds
+            const PIPE_SPEED_PER_SECOND = 120; // Pixels per second (adjusted from PIPE_SPEED)
+            const CLOUD_SPEED_PER_SECOND = 30; // Pixels per second (adjusted from CLOUD_SPEED)
+
+            // Add these variables at the top of your script with other let declarations
+            let lastTime = null;
+            let accumulator = 0;
+
+            // Replace the gameLoop function
             function gameLoop() {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                // Get current timestamp
+                const currentTime = performance.now();
+                if (!lastTime) lastTime = currentTime;
+                
+                // Calculate delta time in seconds
+                const deltaTime = (currentTime - lastTime) / 1000;
+                lastTime = currentTime;
 
-                // Always update and draw clouds, even if game hasn't started
-                updateClouds();
-                drawClouds();
+                // Accumulator for fixed time step
+                accumulator += deltaTime * 1000; // Convert to milliseconds
 
-                if (gameStarted && !gameOver) {
-                    frameCount++;
-                    
-                    bird.velocity += bird.gravity;
-                    bird.y += bird.velocity;
+                // Update game state at fixed time steps
+                while (accumulator >= TIME_STEP) {
+                    if (gameStarted && !gameOver) {
+                        frameCount++;
+                        
+                        // Update bird physics with delta time
+                        bird.velocity += bird.gravity * (TIME_STEP / 16.67); // Normalize to 60 FPS
+                        bird.y += bird.velocity * (TIME_STEP / 16.67);
 
-                    if (checkCollision()) {
-                        endGame();
-                        drawPipes();
-                        drawBird();
-                        return;
+                        if (checkCollision()) {
+                            endGame();
+                            break;
+                        }
+
+                        // Update pipes with consistent speed
+                        pipes.forEach(pipe => {
+                            pipe.x -= (PIPE_SPEED_PER_SECOND * TIME_STEP) / 1000;
+                        });
+
+                        // Update clouds with consistent speed
+                        clouds.forEach(cloud => {
+                            cloud.x -= (CLOUD_SPEED_PER_SECOND * TIME_STEP) / 1000;
+                        });
+
+                        updatePipes();
+                        updateScore();
                     }
-
-                    updatePipes();
-                    drawPipes();
-                    updateScore();
+                    accumulator -= TIME_STEP;
                 }
 
+                // Render
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                drawClouds();
+                if (gameStarted) {
+                    drawPipes();
+                }
                 drawBird();
 
                 if (gameStarted && !gameOver) {
@@ -308,10 +344,22 @@
                 clouds.push(cloud);
             }
 
-            // Start the initial animation loop for clouds even before game starts
+            // Update the initialAnimation function
             function initialAnimation() {
+                const currentTime = performance.now();
+                if (!lastTime) lastTime = currentTime;
+                
+                const deltaTime = (currentTime - lastTime) / 1000;
+                lastTime = currentTime;
+
                 if (!gameStarted) {
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    
+                    // Update clouds with consistent speed
+                    clouds.forEach(cloud => {
+                        cloud.x -= (CLOUD_SPEED_PER_SECOND * deltaTime);
+                    });
+                    
                     updateClouds();
                     drawClouds();
                     drawBird();
@@ -323,6 +371,7 @@
 
             drawBird();
         });
+    
     </script>
 </body>
 </html>
